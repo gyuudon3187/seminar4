@@ -1,7 +1,6 @@
 package se.kth.iv1351.soundgoodschool.integration;
 
 import se.kth.iv1351.soundgoodschool.model.InstrumentForRent;
-import se.kth.iv1351.soundgoodschool.model.RentalPeriod;
 import se.kth.iv1351.soundgoodschool.model.RentalPeriodDTO;
 
 import java.sql.*;
@@ -26,6 +25,7 @@ public class SoundGoodDAO {
     private static final String RENTAL_PERIOD_PK2_COLUMN_NAME = "instrument_for_rent_id";
     private static final String START_DATE_COLUMN_NAME = "start_date";
     private static final String END_DATE_COLUMN_NAME = "end_date";
+    private static final String RETURN_DATE_COLUMN_NAME = "actual_return_date";
 
     private static final String PERSON_TABLE_NAME = "person";
     private static final String PERSON_PK_COLUMN_NAME = "id";
@@ -45,13 +45,16 @@ public class SoundGoodDAO {
     private static final String WILDCARD = " ? ";
     private static final String EQUALS = " = ";
     private static final String IS_NULL = " IS NULL ";
+    private static final String IS_NOT_NULL = " IS NOT NULL ";
 
     private Connection connection;
-    private PreparedStatement findAllRentableInstrumentsStmt;
-    private PreparedStatement setInstrAsRentedStmt;
-    private PreparedStatement findNumberOfRentedInstrumentsByStudentSSNStmt;
-    private PreparedStatement findAvailableInstrumentForRentIdsByInstrumentTypeStmt;
-    private PreparedStatement findStudentIdByStudentSSNStmt;
+    private PreparedStatement readAllRentableInstrumentsByInstrumentTypeStmt;
+    private PreparedStatement createInstrumentRentalStmt;
+    private PreparedStatement readNumberOfRentedInstrumentsByStudentSSNStmt;
+    private PreparedStatement readAvailableInstrumentForRentIdsByInstrumentTypeStmt;
+    private PreparedStatement readStudentIdByStudentSSNStmt;
+    private PreparedStatement readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt;
+    private PreparedStatement updateRentalReturnDateStmt;
 
     /**
      * Constructs a new DAO object connected to the SoundGood Music database.
@@ -65,16 +68,24 @@ public class SoundGoodDAO {
         }
     }
 
-    public List<InstrumentForRent> findAllRentableInstruments(String unprocessedInstrumentType) throws SoundGoodDBException {
+    /**
+     * Reads all rentable instruments based on the specified instrument type.
+     *
+     * @param unprocessedInstrumentType the instrument type before the first letter is converted to upper case and the
+     *                                  rest to lower case
+     * @return all rentable instruments of the specified instrument type
+     * @throws SoundGoodDBException thrown if the instruments cannot be retrieved
+     */
+    public List<InstrumentForRent> readAllRentableInstrumentsByInstrumentType(String unprocessedInstrumentType)
+            throws SoundGoodDBException {
         String failureMsg = "Failed to list rentable instruments";
         ResultSet rs = null;
 
         List<InstrumentForRent> instruments = null;
         String instrumentType = firstLetterToUpperCaseAndRestToLowerCase(unprocessedInstrumentType);
-
         try {
-            findAllRentableInstrumentsStmt.setString(1, instrumentType);
-            rs = findAllRentableInstrumentsStmt.executeQuery();
+            readAllRentableInstrumentsByInstrumentTypeStmt.setString(1, instrumentType);
+            rs = readAllRentableInstrumentsByInstrumentTypeStmt.executeQuery();
             instruments = new ArrayList<InstrumentForRent>();
             while(rs.next()) {
                 instruments.add(new InstrumentForRent(
@@ -94,31 +105,54 @@ public class SoundGoodDAO {
         return instruments;
     }
 
-    public void setInstrAsRented(RentalPeriodDTO rentalPeriod) throws SoundGoodDBException {
+    /**
+     * Updates an instrument for rent as rented by a specified student until a specified end date.
+     *
+     * @param rentalPeriod a DTO containing the student's id, the rental instrument's id and the end date
+     * @throws SoundGoodDBException thrown if:
+     *                              1) the instrument is unavailable
+     *                              2) the student's rental quota is exceeded
+     *                              3) the rental period is longer than one year
+     */
+    public boolean createInstrumentRental(RentalPeriodDTO rentalPeriod) throws SoundGoodDBException {
         String failureMsg = "Failed to rent instrument.";
 
+        boolean rentalSuccessful = false;
+
         try {
-            setInstrAsRentedStmt.setLong(1, rentalPeriod.getStudentId());
-            setInstrAsRentedStmt.setLong(2, rentalPeriod.getInstrumentForRentId());
-            setInstrAsRentedStmt.setTimestamp(3, rentalPeriod.getEndDate());
-            System.out.println("1");
-            int result = setInstrAsRentedStmt.executeUpdate();
-            System.out.println("2");
-            if(result != 1) handleException(failureMsg, null);
+            createInstrumentRentalStmt.setLong(1, rentalPeriod.getStudentId());
+            createInstrumentRentalStmt.setLong(2, rentalPeriod.getInstrumentForRentId());
+            createInstrumentRentalStmt.setTimestamp(3, rentalPeriod.getEndDate());
+            int result = createInstrumentRentalStmt.executeUpdate();
+
+            if(result != 1) {
+                handleException(failureMsg, null);
+            } else {
+                rentalSuccessful = true;
+            }
         } catch(Exception e) {
             handleException(failureMsg, e);
         }
+
+        return rentalSuccessful;
     }
 
-    public Integer findNumberOfRentedInstrumentsByStudentSSN(String ssn) throws SoundGoodDBException {
+    /**
+     * Reads the number of instruments that has been rented by the specified student.
+     *
+     * @param studentSsn the student's social security number
+     * @return the number of instruments that has been rented by the student
+     * @throws SoundGoodDBException thrown if the number of instruments cannot be retrieved
+     */
+    public Integer readNumberOfRentedInstrumentsByStudentSSN(String studentSsn) throws SoundGoodDBException {
         String failureMsg = "Failed to retrieve number of rented instruments";
         ResultSet rs = null;
 
         Integer numberOfRentedInstruments = 0;
 
         try {
-            findNumberOfRentedInstrumentsByStudentSSNStmt.setString(1, ssn);
-            rs = findNumberOfRentedInstrumentsByStudentSSNStmt.executeQuery();
+            readNumberOfRentedInstrumentsByStudentSSNStmt.setString(1, studentSsn);
+            rs = readNumberOfRentedInstrumentsByStudentSSNStmt.executeQuery();
             if(rs.next()) numberOfRentedInstruments = rs.getInt(RENTED_INSTR_COUNT_NAME);
         } catch(Exception e) {
             handleException(failureMsg, e);
@@ -129,7 +163,17 @@ public class SoundGoodDAO {
         return numberOfRentedInstruments;
     }
 
-    public ArrayList<Long> findAvailableInstrumentForRentIdsByInstrumentType(String unprocessedInstrumentType,
+    /**
+     * Reads the ID:s of all instruments available for rent of a specified instrument type.
+     *
+     * @param unprocessedInstrumentType the instrument type before the first letter is converted to upper case and the
+     *                                  rest to lower case
+     * @param unprocessedBrand the instrument brand before the first letter is converted to upper case and the
+     *                         rest to lower case
+     * @return the ID:s of all instruments available for rent of a specified instrument type
+     * @throws SoundGoodDBException thrown if the ID:s cannot be retrieved
+     */
+    public ArrayList<Long> readAvailableInstrumentForRentIdsByInstrumentType(String unprocessedInstrumentType,
                                                                              String unprocessedBrand) throws SoundGoodDBException {
         String failureMsg = "Failed to retrieve ids for available rental instruments";
         ResultSet rs = null;
@@ -139,9 +183,9 @@ public class SoundGoodDAO {
         String brand = firstLetterToUpperCaseAndRestToLowerCase(unprocessedBrand);
 
         try {
-            findAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(1, instrumentType);
-            findAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(2, brand);
-            rs = findAvailableInstrumentForRentIdsByInstrumentTypeStmt.executeQuery();
+            readAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(1, instrumentType);
+            readAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(2, brand);
+            rs = readAvailableInstrumentForRentIdsByInstrumentTypeStmt.executeQuery();
             while(rs.next()) availableInstrumentForRentIds.add(rs.getLong(INSTR_FOR_RENT_PK_COLUMN_NAME));
         } catch (Exception e) {
             handleException(failureMsg, e);
@@ -152,15 +196,22 @@ public class SoundGoodDAO {
         return availableInstrumentForRentIds;
     }
 
-    public Long findStudentIdByStudentSSN(String studentSsn) throws SoundGoodDBException {
+    /**
+     * Reads the ID of a student based on the student's social security number.
+     *
+     * @param studentSsn the student's social security number
+     * @return the student's ID
+     * @throws SoundGoodDBException thrown if student ID cannot be retrieved
+     */
+    public Long readStudentIdByStudentSSN(String studentSsn) throws SoundGoodDBException {
         String failureMsg = "Failed to retrieve student id";
         ResultSet rs = null;
 
         Long studentId = null;
 
         try {
-            findStudentIdByStudentSSNStmt.setString(1, studentSsn);
-            rs = findStudentIdByStudentSSNStmt.executeQuery();
+            readStudentIdByStudentSSNStmt.setString(1, studentSsn);
+            rs = readStudentIdByStudentSSNStmt.executeQuery();
             if(rs.next()) studentId = rs.getLong(PERSON_PK_COLUMN_NAME);
         } catch (Exception e) {
             handleException(failureMsg, e);
@@ -172,9 +223,74 @@ public class SoundGoodDAO {
     }
 
     /**
+     * Reads the ID of an instrument currently rented by the student based on the specified instrument type,
+     * instrument brand and the student's ID.
+     *
+     * @param unprocessedInstrumentType the instrument type before the first letter is converted to upper case and the
+     *                                  rest to lower case
+     * @param unprocessedBrand the instrument brand before the first letter is converted to upper case and the
+     *                         rest to lower case
+     * @param studentId the student's ID
+     * @return the ID of the currently rented instrument
+     * @throws SoundGoodDBException thrown if the instrument ID cannot be retrieved
+     */
+    public Long readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentId(
+            String unprocessedInstrumentType,
+            String unprocessedBrand,
+            Long studentId) throws SoundGoodDBException {
+        String failureMsg = "Failed to retrieve instrument id";
+        ResultSet rs = null;
+
+        String instrumentType = firstLetterToUpperCaseAndRestToLowerCase(unprocessedInstrumentType);
+        String brand = firstLetterToUpperCaseAndRestToLowerCase(unprocessedBrand);
+
+        Long currentlyRentedInstrumentId = null;
+
+        try {
+            readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setLong(1, studentId);
+            readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setString(2, brand);
+            readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setString(3, instrumentType);
+            rs = readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.executeQuery();
+            if(rs.next()) currentlyRentedInstrumentId = rs.getLong(RENTAL_PERIOD_PK2_COLUMN_NAME);
+        } catch (Exception e) {
+            handleException(failureMsg, e);
+        } finally {
+            closeResultSet(failureMsg, rs);
+        }
+
+        return currentlyRentedInstrumentId;
+    }
+
+    /**
+     * Updates the date on which the rented instrument was returned.
+     *
+     * @param studentId the id of the student that rented the instrument
+     * @param instrumentId the id of the instrument rented by the student
+     * @return whether the update was successful or not
+     * @throws SoundGoodDBException thrown if update cannot be completed
+     */
+    public boolean updateRentalReturnDate(Long studentId, Long instrumentId) throws SoundGoodDBException {
+        String failureMsg = "Failed to update return date of rental";
+        int result = 0;
+
+        boolean updateSuccessful = true;
+
+        try {
+            updateRentalReturnDateStmt.setLong(1, studentId);
+            updateRentalReturnDateStmt.setLong(2, instrumentId);
+            result = updateRentalReturnDateStmt.executeUpdate();
+            if(result != 1) handleException(failureMsg, null);
+        } catch (Exception e) {
+            handleException(failureMsg, e);
+        }
+
+        return updateSuccessful;
+    }
+
+    /**
      * Commits the current transaction.
      *
-     * @throws SoundGoodDBException If unable to commit the current transaction.
+     * @throws SoundGoodDBException thrown if unable to commit the current transaction
      */
     public void commit() throws SoundGoodDBException {
         try {
@@ -194,18 +310,21 @@ public class SoundGoodDAO {
     }
 
     private void prepareStatements() throws SQLException {
-        prepareFindAllRentableInstrumentsStmt();
-        prepareSetInstrAsRentedStmt();
-        prepareFindNumberOfRentedInstrumentsByStudentSSNStmt();
-        prepareFindAvailableInstrumentForRentIdsByInstrumentType();
-        prepareFindStudentIdByStudentSSN();
+        prepareReadAllRentableInstrumentsByInstrumentTypeStmt();
+        prepareCreateInstrumentRentalStmt();
+        prepareReadNumberOfRentedInstrumentsByStudentSSNStmt();
+        prepareReadAvailableInstrumentForRentIdsByInstrumentTypeStmt();
+        prepareReadStudentIdByStudentSSNStmt();
+        prepareReadCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt();
+        prepareCreateInstrumentRentalStmt();
+        prepareUpdateRentalReturnDateStmt();
     }
 
-    private void prepareFindAllRentableInstrumentsStmt() throws SQLException {
+    private void prepareReadAllRentableInstrumentsByInstrumentTypeStmt() throws SQLException {
         final String SUBQUERY_TABLE_NAME = "rent_instr";
 
-        findAllRentableInstrumentsStmt = connection.prepareStatement(
-            select(
+        readAllRentableInstrumentsByInstrumentTypeStmt = connection.prepareStatement(
+            select( "DISTINCT " +
                 INSTR_FOR_RENT_PK_COLUMN_NAME,
                 MONTHLY_FEE_COLUMN_NAME,
                 BRAND_COLUMN_NAME,
@@ -239,22 +358,22 @@ public class SoundGoodDAO {
 
                 RENTAL_PERIOD_PK2_COLUMN_NAME,
                 specifyTableForColumn(
-                        SUBQUERY_TABLE_NAME,
-                        INSTR_PK_COLUMN_NAME
+                    SUBQUERY_TABLE_NAME,
+                    INSTR_PK_COLUMN_NAME
                 )
             ) +
             where(INSTR_TYPE_COLUMN_NAME, EQUALS, WILDCARD) +
-            and(RENTAL_PERIOD_PK2_COLUMN_NAME + IS_NULL) + ";"
+            getAdditionalConditionsForFindingAvailableRentalInstruments()
         );
     }
 
-    private void prepareSetInstrAsRentedStmt() throws SQLException {
-        String  value1 = WILDCARD,
-                value2 = WILDCARD,
-                value3 = "CURRENT_TIMESTAMP(0)",
-                value4 = WILDCARD;
+    private void prepareCreateInstrumentRentalStmt() throws SQLException {
+        String  VALUE1 = WILDCARD,
+                VALUE2 = WILDCARD,
+                VALUE3 = "CURRENT_TIMESTAMP(0)",
+                VALUE4 = WILDCARD;
 
-        setInstrAsRentedStmt = connection.prepareStatement(
+        createInstrumentRentalStmt = connection.prepareStatement(
             insertInto(
                 RENTAL_PERIOD_TABLE_NAME,
 
@@ -263,18 +382,18 @@ public class SoundGoodDAO {
                 START_DATE_COLUMN_NAME,
                 END_DATE_COLUMN_NAME,
 
-                value1,
-                value2,
-                value3,
-                value4
+                VALUE1,
+                VALUE2,
+                VALUE3,
+                VALUE4
             )
         );
     }
 
-    private void prepareFindNumberOfRentedInstrumentsByStudentSSNStmt() throws SQLException {
+    private void prepareReadNumberOfRentedInstrumentsByStudentSSNStmt() throws SQLException {
         final String SUBQUERY_TABLE_NAME = "specified_student_id";
 
-        findNumberOfRentedInstrumentsByStudentSSNStmt = connection.prepareStatement(
+        readNumberOfRentedInstrumentsByStudentSSNStmt = connection.prepareStatement(
             selectCountAs(RENTED_INSTR_COUNT_NAME) +
                 from(RENTAL_PERIOD_TABLE_NAME) +
                 join(INNER, ON_EQUAL,
@@ -289,80 +408,140 @@ public class SoundGoodDAO {
                             RENTAL_PERIOD_TABLE_NAME,
                             RENTAL_PERIOD_PK1_COLUMN_NAME
                     )
-                ) + ";"
+                ) +
+                where(RETURN_DATE_COLUMN_NAME, IS_NULL)
         );
     }
 
-    private void prepareFindAvailableInstrumentForRentIdsByInstrumentType() throws SQLException {
+    private void prepareReadAvailableInstrumentForRentIdsByInstrumentTypeStmt() throws SQLException {
         final String SUBQUERY_TABLE_NAME = "selected_instrument";
 
-        findAvailableInstrumentForRentIdsByInstrumentTypeStmt = connection.prepareStatement(
-                select(
-                    specifyTableForColumn(
-                        INSTR_FOR_RENT_TABLE_NAME,
-                        INSTR_FOR_RENT_PK_COLUMN_NAME
-                    )
-                ) +
-                from(
-                    subquery(
-                        select(
-                            specifyTableForColumn(
-                                INSTR_TABLE_NAME,
-                                INSTR_PK_COLUMN_NAME
-                            )
-                        ),
-                        from(SKILL_LVL_TABLE_NAME),
-                        join(FULL, ON_EQUAL,
-                            INSTR_TABLE_NAME,
-
-                            specifyTableForColumn(
-                                INSTR_TABLE_NAME,
-                                INSTR_PK_COLUMN_NAME
-                            ),
-                            specifyTableForColumn(
-                                SKILL_LVL_TABLE_NAME,
-                                SKILL_LVL_PK_COLUMN_NAME
-                            )
-                        ) +
-                        where(CUR_SKILL_LVL_COLUMN_NAME, IS_NULL) +
-                        and(INSTRUCTOR_COLUMN_NAME + IS_NULL) +
-                        and(INSTR_TYPE_COLUMN_NAME + EQUALS + WILDCARD)
-                    ) + as(SUBQUERY_TABLE_NAME)
-                ) +
-                join(LEFT, ON_EQUAL,
+        readAvailableInstrumentForRentIdsByInstrumentTypeStmt = connection.prepareStatement(
+            select(
+                specifyTableForColumn(
                     INSTR_FOR_RENT_TABLE_NAME,
-
-                    specifyTableForColumn(
-                            INSTR_FOR_RENT_TABLE_NAME,
-                            INSTR_ID_COLUMN_NAME
+                    INSTR_FOR_RENT_PK_COLUMN_NAME
+                )
+            ) +
+            from(
+                subquery(
+                    select(
+                        specifyTableForColumn(
+                            INSTR_TABLE_NAME,
+                            INSTR_PK_COLUMN_NAME
+                        )
                     ),
-                    specifyTableForColumn(
-                            SUBQUERY_TABLE_NAME,
-                            "id"
-                    )
-                ) +
-                join(FULL, ON_EQUAL,
-                    RENTAL_PERIOD_TABLE_NAME,
+                    from(SKILL_LVL_TABLE_NAME),
+                    join(FULL, ON_EQUAL,
+                        INSTR_TABLE_NAME,
 
-                    specifyTableForColumn(
+                        specifyTableForColumn(
+                            INSTR_TABLE_NAME,
+                            INSTR_PK_COLUMN_NAME
+                        ),
+                        specifyTableForColumn(
+                            SKILL_LVL_TABLE_NAME,
+                            SKILL_LVL_PK_COLUMN_NAME
+                        )
+                    ) +
+                    where(CUR_SKILL_LVL_COLUMN_NAME, IS_NULL) +
+                    and(INSTRUCTOR_COLUMN_NAME + IS_NULL) +
+                    and(INSTR_TYPE_COLUMN_NAME + EQUALS + WILDCARD)
+                ) + as(SUBQUERY_TABLE_NAME)
+            ) +
+            join(LEFT, ON_EQUAL,
+                INSTR_FOR_RENT_TABLE_NAME,
+
+                specifyTableForColumn(
                         INSTR_FOR_RENT_TABLE_NAME,
-                        INSTR_FOR_RENT_PK_COLUMN_NAME
-                    ),
-                    RENTAL_PERIOD_PK2_COLUMN_NAME
-                ) +
-                where(RENTAL_PERIOD_PK2_COLUMN_NAME, IS_NULL) +
-                and(BRAND_COLUMN_NAME + EQUALS + WILDCARD) + ";"
+                        INSTR_ID_COLUMN_NAME
+                ),
+                specifyTableForColumn(
+                        SUBQUERY_TABLE_NAME,
+                        "id"
+                )
+            ) +
+            join(FULL, ON_EQUAL,
+                RENTAL_PERIOD_TABLE_NAME,
+
+                specifyTableForColumn(
+                    INSTR_FOR_RENT_TABLE_NAME,
+                    INSTR_FOR_RENT_PK_COLUMN_NAME
+                ),
+                RENTAL_PERIOD_PK2_COLUMN_NAME
+            ) +
+            where(BRAND_COLUMN_NAME, EQUALS, WILDCARD) +
+            getAdditionalConditionsForFindingAvailableRentalInstruments() +
+            and(specifyTableForColumn(
+                    INSTR_FOR_RENT_TABLE_NAME,
+                    INSTR_FOR_RENT_PK_COLUMN_NAME
+                ) + IS_NOT_NULL
+            )
+
         );
     }
 
-    private void prepareFindStudentIdByStudentSSN() throws SQLException {
-        findStudentIdByStudentSSNStmt = connection.prepareStatement(
-                select(
-                    PERSON_PK_COLUMN_NAME
-                ) +
-                from(PERSON_TABLE_NAME) +
-                where(SSN_COLUMN_NAME, EQUALS, WILDCARD)
+    private void prepareReadStudentIdByStudentSSNStmt() throws SQLException {
+        readStudentIdByStudentSSNStmt = connection.prepareStatement(
+            select(PERSON_PK_COLUMN_NAME) +
+            from(PERSON_TABLE_NAME) +
+            where(SSN_COLUMN_NAME, EQUALS, WILDCARD)
         );
+    }
+
+    private void prepareReadCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt() throws SQLException {
+        readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt = connection.prepareStatement(
+            select(RENTAL_PERIOD_PK2_COLUMN_NAME) +
+            from(RENTAL_PERIOD_TABLE_NAME) +
+            join(INNER, ON_EQUAL,
+                INSTR_FOR_RENT_TABLE_NAME,
+
+                RENTAL_PERIOD_PK2_COLUMN_NAME,
+                specifyTableForColumn(
+                    INSTR_FOR_RENT_TABLE_NAME,
+                    INSTR_FOR_RENT_PK_COLUMN_NAME
+                )
+            ) +
+            join(INNER, ON_EQUAL,
+                INSTR_TABLE_NAME,
+
+                INSTR_ID_COLUMN_NAME,
+                specifyTableForColumn(
+                    INSTR_TABLE_NAME,
+                    INSTR_PK_COLUMN_NAME
+                )
+            ) +
+            where(RENTAL_PERIOD_PK1_COLUMN_NAME, EQUALS, WILDCARD) +
+            and(BRAND_COLUMN_NAME + EQUALS + WILDCARD) +
+            and(INSTR_TYPE_COLUMN_NAME + EQUALS + WILDCARD) +
+            and(RETURN_DATE_COLUMN_NAME + IS_NULL) +
+            limit(1)
+        );
+    }
+
+    private void prepareUpdateRentalReturnDateStmt() throws SQLException {
+        final String VALUE = "CURRENT_TIMESTAMP(0)";
+
+        updateRentalReturnDateStmt = connection.prepareStatement(
+            update(RENTAL_PERIOD_TABLE_NAME, RETURN_DATE_COLUMN_NAME, VALUE) +
+            where(RENTAL_PERIOD_PK1_COLUMN_NAME, EQUALS, WILDCARD) +
+            and(RENTAL_PERIOD_PK2_COLUMN_NAME + EQUALS + WILDCARD) +
+            and(RETURN_DATE_COLUMN_NAME + IS_NULL)
+        );
+    }
+
+    private String getAdditionalConditionsForFindingAvailableRentalInstruments() {
+        return and("( " +RENTAL_PERIOD_PK2_COLUMN_NAME + IS_NULL) +
+                or(RENTAL_PERIOD_PK2_COLUMN_NAME) +
+                notIn(
+                    subquery(
+                        select(RENTAL_PERIOD_PK2_COLUMN_NAME),
+                        from(RENTAL_PERIOD_TABLE_NAME),
+                        where(RETURN_DATE_COLUMN_NAME, IS_NULL) +
+                            groupBy(RENTAL_PERIOD_PK2_COLUMN_NAME) +
+                            havingCountLargerThan(0) + ")"
+                    )
+                );
     }
 
     private String and(String stmt) {
@@ -371,6 +550,18 @@ public class SoundGoodDAO {
 
     private String as(String tableName) {
         return " AS " + tableName;
+    }
+
+    private String groupBy(String column) {
+        return " GROUP BY " + column;
+    }
+
+    private String havingCountLargerThan(int count) {
+        return " HAVING COUNT(*) > " + count;
+    }
+
+    private String or(String stmt) {
+        return " OR " + stmt;
     }
 
     private String from(String table) {
@@ -392,8 +583,16 @@ public class SoundGoodDAO {
                     value4 + ");";
     }
 
+    private String limit(int limitCount) {
+        return " LIMIT " + limitCount;
+    }
+
     private String join(String joinOperator, String joinCondition, String table, String column1, String column2) {
         return " " + joinOperator + " " + table + " ON " + column1 + " " + joinCondition + " " + column2;
+    }
+
+    private String notIn(String list) {
+        return " NOT IN " + list;
     }
 
     private String select(String column) {
@@ -414,6 +613,10 @@ public class SoundGoodDAO {
 
     private String subquery(String stmt1, String stmt2, String stmt3) {
         return " (" + stmt1 + " " + stmt2 + " " + stmt3 + ") ";
+    }
+
+    private String update(String table, String column, String value) {
+        return " UPDATE " + table + " SET " + column + EQUALS + value;
     }
 
     private String where(String column1, String condition) {

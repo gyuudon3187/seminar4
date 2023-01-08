@@ -10,6 +10,10 @@ public enum Command {
      */
     RENT,
     /**
+     * Terminates a rental.
+     */
+    TERMINATE,
+    /**
      * Lists all commands.
      */
     HELP,

@@ -13,15 +13,12 @@ public class RentalPeriod implements RentalPeriodDTO {
     private Long instrumentForRentId;
     private Timestamp start_date;
     private Timestamp end_date;
+    private static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public RentalPeriod(Long studentId,
-                        ArrayList<Long> availableInstrumentForRentIds,
+                        Long instrumentForRentId,
                         String endDate, Integer nrOfRentedInstr)
             throws RentalPeriodException {
-
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        validateRental(nrOfRentedInstr, availableInstrumentForRentIds, endDate, formatter);
-        Long instrumentForRentId = availableInstrumentForRentIds.get(0);
 
         this.studentId = studentId;
         this.instrumentForRentId = instrumentForRentId;
@@ -71,28 +68,38 @@ public class RentalPeriod implements RentalPeriodDTO {
         return end_date;
     }
 
-    private void validateRental(Integer nrOfRentedInstr,
+    /**
+     * Validates whether the student may rent the specified instrument or not.
+     *
+     * @param nrOfRentedInstr number of instruments rented by the student
+     * @param availableInstrumentForRentIds ID:s of the available instruments of a certain type
+     * @param endDate the end date of the rental
+     * @return whether the rental may be performed or not
+     * @throws RentalPeriodException thrown if the rental is invalid
+     */
+    public static boolean validateRental(Integer nrOfRentedInstr,
                                 ArrayList<Long> availableInstrumentForRentIds,
-                                String endDate,
-                                DateTimeFormatter formatter)
+                                String endDate)
             throws RentalPeriodException {
 
         validateRentalInstrQuota(nrOfRentedInstr);
-        validateRentalInstrumentAvailability(availableInstrumentForRentIds);
-        validateRentalPeriod(endDate, formatter);
+        validateRentalInstrAvailability(availableInstrumentForRentIds);
+        validateRentalPeriod(endDate);
+
+        return true;
     }
 
-    private void validateRentalInstrQuota(Integer nrOfRentedInstr) throws RentalPeriodException {
+    private static void validateRentalInstrQuota(Integer nrOfRentedInstr) throws RentalPeriodException {
         if(nrOfRentedInstr >= 2) throw new RentalPeriodException("Student has exceeded his/her quota");
     }
 
-    private void validateRentalInstrumentAvailability(ArrayList<Long> availableInstrumentForRentIds) throws RentalPeriodException {
+    private static void validateRentalInstrAvailability(ArrayList<Long> availableInstrumentForRentIds) throws RentalPeriodException {
         if(availableInstrumentForRentIds.isEmpty() || availableInstrumentForRentIds.get(0) == 0) {
             throw new RentalPeriodException("The instrument that the student wants to rent is unavailable");
         }
     }
 
-    private void validateRentalPeriod(String endDateStr, DateTimeFormatter formatter) throws RentalPeriodException {
+    private static void validateRentalPeriod(String endDateStr) throws RentalPeriodException {
         LocalDateTime startDate = LocalDateTime.now();
         LocalDateTime endDate = LocalDateTime.parse(endDateStr, formatter);
         Long rentalDuration = DAYS.between(startDate, endDate);

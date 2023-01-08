@@ -36,7 +36,7 @@ public class Controller {
         String failureMsg = "Failed to list rentable instruments";
 
         try {
-            List<? extends InstrumentForRentDTO> res = sgDb.findAllRentableInstruments(instrumentType);
+            List<? extends InstrumentForRentDTO> res = sgDb.readAllRentableInstrumentsByInstrumentType(instrumentType);
             commitOngoingTransaction(failureMsg);
             return res;
         } catch (SoundGoodDBException sgdbe) {
@@ -51,10 +51,12 @@ public class Controller {
      * @param brand the brand (yamaha, gibson etc) of the rental instrument
      * @param rentalEndDate the date until which the student wishes to rent the instrument
      * @param studentSsn the student's social security number
-     * @throws RentalPeriodException 1) if the rental instrument quota is exceeded, or
-     *                               2) if the rental instrument is unavailable,
+     * @throws RentalPeriodException thrown if:
+     *                               1) if the rental instrument is unavailable
+     *                               2) if the student's rental quota is exceeded
+     *                               3) if the rental period is longer than one year
      */
-    public void rentInstrument(String instrumentType,
+    public boolean rentInstrument(String instrumentType,
                                String brand,
                                String rentalEndDate,
                                String studentSsn)
@@ -62,21 +64,63 @@ public class Controller {
 
         String failureMsg = "Failed to list rentable instruments";
 
+        boolean rentalSuccessful = false;
+
         try {
-            Integer numberOfRentedInstruments = sgDb.findNumberOfRentedInstrumentsByStudentSSN(studentSsn);
+            Integer numberOfRentedInstruments = sgDb.readNumberOfRentedInstrumentsByStudentSSN(studentSsn);
             ArrayList<Long> availableInstrumentIds =
-                    sgDb.findAvailableInstrumentForRentIdsByInstrumentType(instrumentType, brand);
-            Long studentId = sgDb.findStudentIdByStudentSSN(studentSsn);
-            sgDb.setInstrAsRented(new RentalPeriod(
-                    studentId,
+                    sgDb.readAvailableInstrumentForRentIdsByInstrumentType(instrumentType, brand);
+            Long studentId = sgDb.readStudentIdByStudentSSN(studentSsn);
+            boolean studentFulfillsRentalCriteria = RentalPeriod.validateRental(
+                    numberOfRentedInstruments,
                     availableInstrumentIds,
-                    rentalEndDate + " 18:00:00",
-                    numberOfRentedInstruments)
+                    rentalEndDate + " 18:00:00"
             );
+
+            if(studentFulfillsRentalCriteria) {
+                rentalSuccessful = sgDb.createInstrumentRental(new RentalPeriod(
+                        studentId,
+                        availableInstrumentIds.get(0),
+                        rentalEndDate + " 18:00:00",
+                        numberOfRentedInstruments)
+                );
+            }
+
             commitOngoingTransaction(failureMsg);
         } catch (SoundGoodDBException | InstrumentForRentException sgdbe) {
-            sgdbe.printStackTrace();
+            throw new RentalPeriodException(failureMsg, sgdbe);
         }
+
+        return rentalSuccessful;
+    }
+
+    /**
+     * Terminates rental by specifying instrument type and brand as well as student
+     *
+     * @param instrumentType type of rented
+     * @param brand brand of rented instrument
+     * @param studentSsn the student's social security number
+     */
+    public boolean terminateRental(String instrumentType, String brand, String studentSsn) throws RentalPeriodException {
+        String failureMsg = "Failed to terminate rental";
+
+        boolean terminationSuccessful = false;
+
+        try {
+            Long studentId = sgDb.readStudentIdByStudentSSN(studentSsn);
+            Long currentlyRentedInstrumentId =
+                    sgDb.readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentId(
+                            instrumentType,
+                            brand,
+                            studentId
+                    );
+             terminationSuccessful = sgDb.updateRentalReturnDate(studentId, currentlyRentedInstrumentId);
+             commitOngoingTransaction(failureMsg);
+        } catch (SoundGoodDBException | InstrumentForRentException sgdbe) {
+            throw new RentalPeriodException(failureMsg, sgdbe);
+        }
+
+        return terminationSuccessful;
     }
 
     private void commitOngoingTransaction(String failureMsg) throws InstrumentForRentException {

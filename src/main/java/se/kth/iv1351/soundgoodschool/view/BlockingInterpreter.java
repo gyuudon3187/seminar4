@@ -56,15 +56,24 @@ public class BlockingInterpreter {
                         enumerateInstruments(instruments);
                         break;
                     case RENT:
-                        ctrl.rentInstrument(
-                                cmdLine.getParameter(0),
-                                cmdLine.getParameter(1),
-                                cmdLine.getParameter(2),
-                                cmdLine.getParameter(3)
+                        boolean rentalSuccessful = ctrl.rentInstrument(
+                            cmdLine.getParameter(0),
+                            cmdLine.getParameter(1),
+                            cmdLine.getParameter(2),
+                            cmdLine.getParameter(3)
                         );
+                        if(rentalSuccessful) System.out.println("Rental successful");
+                        break;
+                    case TERMINATE:
+                        boolean terminationSuccessful = ctrl.terminateRental(
+                            cmdLine.getParameter(0),
+                            cmdLine.getParameter(1),
+                            cmdLine.getParameter(2)
+                        );
+                        if(terminationSuccessful) System.out.println("Termination successful");
                         break;
                     default:
-                        System.out.println("illegal command");
+                        System.out.println("Illegal command");
                 }
             } catch (Exception e) {
                 System.out.println("Operation failed");
