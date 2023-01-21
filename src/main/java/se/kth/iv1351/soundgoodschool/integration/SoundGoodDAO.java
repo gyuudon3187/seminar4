@@ -84,6 +84,8 @@ public class SoundGoodDAO {
         List<InstrumentForRent> instruments = null;
         String instrumentType = firstLetterToUpperCaseAndRestToLowerCase(unprocessedInstrumentType);
         try {
+            dummySelectForUpdate(RENTAL_PERIOD_TABLE_NAME);
+            dummySelectForUpdate(INSTR_FOR_RENT_TABLE_NAME);
             readAllRentableInstrumentsByInstrumentTypeStmt.setString(1, instrumentType);
             rs = readAllRentableInstrumentsByInstrumentTypeStmt.executeQuery();
             instruments = new ArrayList<InstrumentForRent>();
@@ -151,10 +153,13 @@ public class SoundGoodDAO {
         Integer numberOfRentedInstruments = 0;
 
         try {
+            dummySelectForUpdate(RENTAL_PERIOD_TABLE_NAME);
+            dummySelectForUpdate(INSTR_FOR_RENT_TABLE_NAME);
             readNumberOfRentedInstrumentsByStudentSSNStmt.setString(1, studentSsn);
             rs = readNumberOfRentedInstrumentsByStudentSSNStmt.executeQuery();
             if(rs.next()) numberOfRentedInstruments = rs.getInt(RENTED_INSTR_COUNT_NAME);
         } catch(Exception e) {
+            e.printStackTrace();
             handleException(failureMsg, e);
         } finally {
             closeResultSet(failureMsg, rs);
@@ -183,6 +188,8 @@ public class SoundGoodDAO {
         String brand = firstLetterToUpperCaseAndRestToLowerCase(unprocessedBrand);
 
         try {
+            dummySelectForUpdate(RENTAL_PERIOD_TABLE_NAME);
+            dummySelectForUpdate(INSTR_FOR_RENT_TABLE_NAME);
             readAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(1, instrumentType);
             readAvailableInstrumentForRentIdsByInstrumentTypeStmt.setString(2, brand);
             rs = readAvailableInstrumentForRentIdsByInstrumentTypeStmt.executeQuery();
@@ -247,6 +254,8 @@ public class SoundGoodDAO {
         Long currentlyRentedInstrumentId = null;
 
         try {
+            dummySelectForUpdate(RENTAL_PERIOD_TABLE_NAME);
+            dummySelectForUpdate(INSTR_FOR_RENT_TABLE_NAME);
             readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setLong(1, studentId);
             readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setString(2, brand);
             readCurrentlyRentedInstrumentIdByInstrTypeBrandAndStudentIdStmt.setString(3, instrumentType);
@@ -394,7 +403,7 @@ public class SoundGoodDAO {
         final String SUBQUERY_TABLE_NAME = "specified_student_id";
 
         readNumberOfRentedInstrumentsByStudentSSNStmt = connection.prepareStatement(
-            selectCountAs(RENTED_INSTR_COUNT_NAME) +
+                selectCountAs(RENTED_INSTR_COUNT_NAME) +
                 from(RENTAL_PERIOD_TABLE_NAME) +
                 join(INNER, ON_EQUAL,
                     subquery(
@@ -485,7 +494,8 @@ public class SoundGoodDAO {
         readStudentIdByStudentSSNStmt = connection.prepareStatement(
             select(PERSON_PK_COLUMN_NAME) +
             from(PERSON_TABLE_NAME) +
-            where(SSN_COLUMN_NAME, EQUALS, WILDCARD)
+            where(SSN_COLUMN_NAME, EQUALS, WILDCARD) +
+            forUpdate()
         );
     }
 
@@ -552,6 +562,10 @@ public class SoundGoodDAO {
         return " AS " + tableName;
     }
 
+    private void dummySelectForUpdate(String table) throws SQLException {
+        connection.createStatement().executeQuery("SELECT * FROM " + table + " FOR UPDATE");
+    }
+
     private String groupBy(String column) {
         return " GROUP BY " + column;
     }
@@ -562,6 +576,10 @@ public class SoundGoodDAO {
 
     private String or(String stmt) {
         return " OR " + stmt;
+    }
+
+    private String forUpdate() {
+        return " FOR UPDATE";
     }
 
     private String from(String table) {
